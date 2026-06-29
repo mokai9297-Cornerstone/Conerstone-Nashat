@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rota System – Final Build with Share Config</title>
+
+<style>
+  body { font-family: Arial, sans-serif; background:#f0f0f0; margin:0; padding:20px; }
+  h1 { margin-bottom:10px; }
+  .toolbar { margin-bottom:15px; }
+  .toolbar button { margin-right:8px; padding:6px 10px; }
+  .card { background:#ffffff; padding:15px; margin-bottom:15px; border-radius:6px; }
+  table { width:100%; border-collapse:collapse; background:#fff; }
+  th, td { border:1px solid #ccc; padding:8px; text-align:left; }
+  th { background:#e0e0e0; }
+  .staff-btn { padding:4px 8px; border:none; border-radius:4px; color:#fff; margin:2px; cursor:pointer; font-size:12px; }
+  .staff-btn[draggable="true"] { cursor:grab; }
+  .staff-btn.dragging { opacity:0.4; }
+  .edit-btn {
+    padding:4px 8px;
+    margin-left:6px;
+    background:#007bff;
+    color:white;
+    border:none;
+    border-radius:4px;
+    cursor:pointer;
+    font-size:12px;
+  }
+
+  body.dashboard { background:#e5e5e5; }
+  body.dashboard table { box-shadow:0 2px 4px rgba(0,0,0,0.1); }
+
+  body.colour .day-Monday  { background:#fdebd0; }
+  body.colour .day-Tuesday { background:#d6eaf8; }
+  body.colour .day-Wednesday{ background:#d5f5e3; }
+  body.colour .day-Thursday{ background:#f9e79f; }
+  body.colour .day-Friday  { background:#f5cba7; }
+  body.colour .day-Saturday{ background:#abebc6; }
+  body.colour .day-Sunday  { background:#e8e8e8; }
+
+  .conflict-partial { background:#fff7c2 !important; }
+  .conflict-full { background:#ffcccc !important; }
+
+  .modal { display:none; position:fixed; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.4); align-items:center; justify-content:center; }
+  .modal-content { background:#fff; padding:15px; border-radius:6px; width:420px; }
+
+  .modal-scroll {
+    max-height: 70vh;
+    overflow-y: auto;
+    padding-right: 10px;
+  }
+
+  .tab-header {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .tab-header button {
+    flex: 1;
+    padding: 8px;
+    background: #ddd;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .tab-header button.active {
+    background: #007bff;
+    color: white;
+  }
+  .tab-content { display:none; }
+  .tab-content.active { display:block; }
+
+  .modal-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  #staff-pool {
+    padding:10px;
+    background:#fff;
+    border:1px solid #ccc;
+    min-height:50px;
+    border-radius:6px;
+  }
+  .staff-pool-item {
+    display:inline-block;
+    padding:6px 10px;
+    margin:4px;
+    background:#555;
+    color:#fff;
+    border-radius:4px;
+    cursor:grab;
+  }
+
+  .calendar-grid {
+    display:grid;
+    grid-template-columns:repeat(7,1fr);
+    gap:6px;
+  }
+  .calendar-day {
+    background:#fff;
+    border:1px solid #ccc;
+    padding:8px;
+    border-radius:4px;
+    cursor:pointer;
+  }
+
+  .print-weeks { display:none; }
+  @media print {
+    .toolbar, #edit-modal, #availability-modal, #summary-card, #calendar, .card:not(.print-weeks) {
+      display:none;
+    }
+    body { background:#fff; padding:0; }
+    .print-weeks { display:block; }
+  }
+</style>
+</head>
+
+<body class="dashboard">
+
+<h1>Rota System</h1>
+
+<div class="toolbar">
+  <button onclick="setStyle('dashboard')">Dashboard Style</button>
+  <button onclick="setStyle('colour')">Colour‑coded Days</button>
+  <button onclick="autoGenerateRota()">Auto‑Generate</button>
+  <button onclick="rotateStaffDays()">Rotate</button>
+  <button onclick="copyDay()">Copy Day</button>
+  <button onclick="copyWeek()">Copy Week</button>
+  <button onclick="calculateHours()">Weekly Hours</button>
+  <button onclick="suggestShifts()">AI Suggestions</button>
+  <button onclick="applyShiftTemplate('morning')">Morning</button>
+  <button onclick="applyShiftTemplate('afternoon')">Afternoon</button>
+  <button onclick="applyShiftTemplate('full')">Full Day</button>
+  <button onclick="lockDay()">Lock Day</button>
+  <button onclick="unlockDay()">Unlock Day</button>
+  <button onclick="lockStaff()">Lock Staff</button>
+  <button onclick="unlockStaff()">Unlock Staff</button>
+  <button onclick="exportCSV()">Export CSV</button>
+  <button onclick="window.print()">Print</button>
+  <button onclick="exportConfig()">Share Config (Export)</button>
+  <button onclick="importConfig()">Load Config (Import)</button>
+  <input type="file" id="config-file" style="display:none" onchange="handleConfigFile(event)">
+</div>
+
+<div class="card">
+  <label>Week:</label>
+  <select id="week-selector" onchange="changeWeek()">
+    <option value="week1">Week 1</option>
+    <option value="week2">Week 2</option>
+    <option value="week3">Week 3</option>
+    <option value="week4">Week 4</option>
+  </select>
+</div>
+
+<div class="card">
+  <h3>Add Staff</h3>
+  <input id="new-staff-name" placeholder="Name">
+  <button onclick="addStaff()">Add</button>
+</div>
+
+<div class="card">
+  <h3>Staff Pool (Drag Into Any Day)</h3>
+  <div id="staff-pool"></div>
+  <input id="extra-staff-name" placeholder="Add extra staff">
+  <button onclick="addExtraStaff()">Add to Pool</button>
+</div>
+
+<div class="card">
+  <h3>Staff Timeline & Availability Editor</h3>
+  <label>Staff:</label>
+  <select id="staff-select" onchange="renderStaffTimeline()"></select>
+  <button onclick="openAvailabilityModal()">Edit Availability</button>
+  <div id="timeline-view"></div>
+</div>
+
+<div id="rota-container" class="card"></div>
+
+<div id="summary-card" class="card">
+  <h3>Weekly Summary</h3>
+  <div id="summary-view"></div>
+</div>
+
+<div class="card">
+  <h3>Monthly Calendar</h3>
+  <div id="calendar"></div>
+</div>
+
+<div class="card print-weeks">
+  <h3>Multi‑Week Rota (Printable)</h3>
+  <div id="print-weeks-container"></div>
+</div>
+
+<!-- EDIT MODAL -->
+<div id="edit-modal" class="modal">
+  <div class="modal-content">
+    <div class="modal-scroll">
+
+      <h3>Edit Day</h3>
+
+      <div class="tab-header">
+        <button id="tab-hours" class="active" onclick="switchTab('hours')">Hours</button>
+        <button id="tab-staff" onclick="switchTab('staff')">Staff</button>
+        <button id="tab-availability" onclick="switchTab('availability')">Availability</button>
+      </div>
+
+      <div id="tab-content-hours" class="tab-content active">
+        <label>Day:</label>
+        <select id="modal-day"></select>
+
+        <label>Store Hours:</label>
+        <select id="modal-start"></select>
+        <select id="modal-end"></select>
+
+        <button onclick="applyModalEdit()">Apply Store Hours</button>
+      </div>
+
+      <div id="tab-content-staff" class="tab-content">
+        <label>Staff (select to add/remove):</label>
+        <select id="modal-staff" multiple size="6"></select>
+
+        <div class="modal-columns">
+          <div>
+            <button onclick="addStaffToDay()">Add Staff</button>
+            <button onclick="removeSelectedStaff()">Remove Staff</button>
+          </div>
+
+          <div id="individual-hours"></div>
+        </div>
+
+        <button onclick="saveIndividualHours()">Save Staff Hours</button>
+      </div>
+
+      <div id="tab-content-availability" class="tab-content">
+        <label>Select Staff:</label>
+        <select id="availability-select"></select>
+
+        <label>Edit Availability (JSON):</label>
+        <textarea id="availability-json" rows="6"></textarea>
+
+        <button onclick="saveAvailability()">Save Availability</button>
+      </div>
+
+      <button onclick="closeModal()">Close</button>
+
+    </div>
+  </div>
+</div>
+
+<!-- AVAILABILITY POPUP (MAIN) -->
+<div id="availability-modal" class="modal">
+  <div class="modal-content">
+    <h3>Edit Availability</h3>
+    <p id="availability-name"></p>
+    <label>Availability (JSON):</label>
+    <textarea id="availability-json-main" rows="6"></textarea>
+    <button onclick="saveAvailabilityMain()">Save</button>
+    <button onclick="closeAvailabilityModal()">Cancel</button>
+  </div>
+</div>
+
+<script>
+const STORE_OPEN = 10;
+const STORE_CLOSE = 18.5;
+
+let staffProfiles = {
+  Colin:  { availability: { Tuesday:"13:00–16:00", Thursday:"15:00–18:30" } },
+  Desire: { availability: { Wednesday:"10:00–15:00", Saturday:"10:00–16:00" } },
+  Takudzwa:{ availability: { Monday:"10:00–18:00", Tuesday:"10:00–15:00" } },
+  Kwame:  { availability: { Wednesday:"10:00–20:00", Thursday:"10:00–20:00" } },
+  Kwadjo: { availability: { Saturday:"15:00–20:00" } },
+  Asaru:  { availability: { Tuesday:"10:00–18:30" } }
+};
+
+let staffColors = {
+  Colin:"#e67e22",
+  Desire:"#8e44ad",
+  Takudzwa:"#2980b9",
+  Kwame:"#16a085",
+  Kwadjo:"#d35400",
+  Asaru:"#2c3e50",
+  Default:"#7f8c8d"
+};
+
+let rota = {
+  week1: {
+    Monday:   { hours:"10:00–18:30", staff:[{name:"Takudzwa",hours:"10:00–18:00"}] },
+    Tuesday:  { hours:"10:00–18:30", staff:[{name:"Asaru",hours:"10:00–18:30"}] },
+    Wednesday:{ hours:"10:00–18:30", staff:[{name:"Kwame",hours:"10:00–18:30"}] },
+    Thursday: { hours:"10:00–18:30", staff:[{name:"Kwame",hours:"10:00–18:30"}] },
+    Friday:   { hours:"10:00–18:30", staff:[] },
+    Saturday: { hours:"10:00–18:30", staff:[
+      {name:"Colin",hours:"10:00–16:00"},
+      {name:"Kwadjo",hours:"15:00–20:00"}
+    ] },
+    Sunday:   { hours:"Closed", staff:[] }
+  }
+};
+rota.week2 = JSON.parse(JSON.stringify(rota.week1));
+rota.week3 = JSON.parse(JSON.stringify(rota.week1));
+rota.week4 = JSON.parse(JSON.stringify(rota.week1));
+
+let currentWeek = "week1";
+let dragData = null;
+let lockedDays = {};
+let lockedStaff = {};
+let preferredHours = {};
+
+function setStyle(style) { document.body.className = style; }
+
+function checkConflicts(day, staffName, hours) {
+  const availability = staffProfiles[staffName]?.availability[day];
+  if (!availability) return "full";
+  const [aStart, aEnd] = availability.split("–");
+  const [hStart, hEnd] = hours.split("–");
+  const aS = parseFloat(aStart.replace(":", "."));
+  const aE = parseFloat(aEnd.replace(":", "."));
+  const hS = parseFloat(hStart.replace(":", "."));
+  const hE = parseFloat(hEnd.replace(":", "."));
+  if (hS >= aS && hE <= aE) return "none";
+  if (hE <= aS || hS >= aE) return "full";
+  return "partial";
+}
+
+function renderRota() {
+  const week = rota[currentWeek];
+  let html = `<table><thead><tr><th>Day</th><th>Hours</th><th>Staff</th></tr></thead><tbody>`;
+  for (const day in week) {
+    const entry = week[day];
+    const staffButtons = entry.staff.map(s => {
+      const name = s.name;
+      const color = staffColors[name] || staffColors.Default;
+      const conflict = entry.hours.includes("–") ? checkConflicts(day, name, s.hours) : "none";
+      let conflictClass = "";
+      if (conflict === "partial") conflictClass = "conflict-partial";
+      if (conflict === "full") conflictClass = "conflict-full";
+      return `
+        <button class="staff-btn ${conflictClass}"
+                style="background:${color};"
+                draggable="true"
+                ondragstart="onStaffDragStart(event,'${name}','${day}')"
+                ondragend="onStaffDragEnd(event)"
+                onclick="showStaffShift('${name}','${day}','${s.hours}')">
+          ${name} (${s.hours})
+        </button>
+      `;
+    }).join("");
+    html += `<tr class="day-${day}">
+      <td>${day}${lockedDays[day] ? " 🔒" : ""}</td>
+      <td>${entry.hours}</td>
+      <td ondragover="onStaffDragOver(event)" ondrop="onStaffDrop(event,'${day}')">
+        ${staffButtons || "—"}
+        <button class="edit-btn" onclick="openEditModal('${day}')">Edit</button>
+      </td>
+    </tr>`;
+  }
+  html += `</tbody></table>`;
+  document.getElementById("rota-container").innerHTML = html;
+}
+
+function onStaffDragStart(e, name, day) {
+  dragData = { name, day, fromPool:false };
+  e.target.classList.add("dragging");
+}
+function onStaffDragEnd(e) { e.target.classList.remove("dragging"); }
+function onStaffDragOver(e) { e.preventDefault(); }
+
+function onStaffDrop(e, targetDay) {
+  e.preventDefault();
+  if (!dragData) return;
+  const { name, day, fromPool } = dragData;
+  const week = rota[currentWeek];
+
+  if (!fromPool && day === targetDay) {
+    const staffList = week[targetDay].staff;
+    const draggedIndex = staffList.findIndex(s => s.name === name);
+    const btn = e.target.closest(".staff-btn");
+    if (btn) {
+      const text = btn.textContent.trim();
+      const afterName = text.split(" (")[0];
+      const afterIndex = staffList.findIndex(s => s.name === afterName);
+      if (draggedIndex !== -1 && afterIndex !== -1) {
+        const [item] = staffList.splice(draggedIndex, 1);
+        staffList.splice(afterIndex, 0, item);
+      }
+    }
+    dragData = null;
+    renderRota();
+    return;
+  }
+
+  if (!fromPool) {
+    week[day].staff = week[day].staff.filter(s => s.name !== name);
+  }
+
+  if (!week[targetDay].staff.find(s => s.name === name)) {
+    const defaultHours = week[targetDay].hours.includes("–") ? week[targetDay].hours : "10:00–18:30";
+    week[targetDay].staff.push({ name, hours: defaultHours });
+  }
+
+  dragData = null;
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+}
+
+function showStaffShift(name, day, hours) {
+  alert(`${name} works on ${day}: ${hours}`);
+}
+
+function changeWeek() {
+  currentWeek = document.getElementById("week-selector").value;
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+}
+
+function addStaff() {
+  const name = document.getElementById("new-staff-name").value.trim();
+  if (!name) return;
+  if (!staffProfiles[name]) staffProfiles[name] = { availability:{} };
+  if (!staffColors[name]) staffColors[name] = staffColors.Default;
+  document.getElementById("new-staff-name").value = "";
+  populateStaffDropdown();
+  renderStaffPool();
+}
+
+function populateStaffDropdown() {
+  const select = document.getElementById("staff-select");
+  select.innerHTML = "";
+  Object.keys(staffProfiles).forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name + (lockedStaff[name] ? " 🔒" : "");
+    select.appendChild(opt);
+  });
+}
+
+function renderStaffPool() {
+  const pool = document.getElementById("staff-pool");
+  pool.innerHTML = "";
+  Object.keys(staffProfiles).forEach(name => {
+    const div = document.createElement("div");
+    div.className = "staff-pool-item";
+    div.textContent = name + (lockedStaff[name] ? " 🔒" : "");
+    div.draggable = true;
+    div.ondragstart = (e) => { dragData = { name, fromPool:true }; };
+    pool.appendChild(div);
+  });
+}
+
+function addExtraStaff() {
+  const name = document.getElementById("extra-staff-name").value.trim();
+  if (!name) return;
+  if (!staffProfiles[name]) staffProfiles[name] = { availability:{} };
+  staffColors[name] = staffColors.Default;
+  document.getElementById("extra-staff-name").value = "";
+  renderStaffPool();
+  populateStaffDropdown();
+}
+
+function renderStaffTimeline() {
+  const name = document.getElementById("staff-select").value;
+  if (!name) { document.getElementById("timeline-view").innerHTML=""; return; }
+  const week = rota[currentWeek];
+  const startHour = STORE_OPEN;
+  const endHour = STORE_CLOSE;
+  const hourWidth = 20;
+  let html = `<p><strong>${name}</strong>${lockedStaff[name] ? " 🔒" : ""}</p>`;
+  for (const day in week) {
+    const entry = week[day];
+    const staffEntry = entry.staff.find(s => s.name === name);
+    html += `<div>${day}: `;
+    if (staffEntry) {
+      html += `<span style="display:inline-block;background:${staffColors[name]||staffColors.Default};height:10px;width:${(endHour-startHour)*hourWidth}px;"></span> ${staffEntry.hours}`;
+    } else {
+      html += `Not working`;
+    }
+    html += `</div>`;
+  }
+  if (preferredHours[name]) {
+    html += `<div>Preferred: ${preferredHours[name].avgStart}–${preferredHours[name].avgEnd}</div>`;
+  }
+  document.getElementById("timeline-view").innerHTML = html;
+}
+
+function autoGenerateRota() {
+  const week = rota[currentWeek];
+  for (const day in week) {
+    if (lockedDays[day]) continue;
+    week[day].staff = [];
+    for (const name in staffProfiles) {
+      if (lockedStaff[name]) continue;
+      const profile = staffProfiles[name];
+      if (profile.availability[day]) {
+        week[day].staff.push({ name, hours: week[day].hours });
+      }
+    }
+    if (!week[day].hours.includes("–") && day !== "Sunday") {
+      week[day].hours = "10:00–18:30";
+    }
+  }
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+}
+
+function rotateStaffDays() {
+  const week = rota[currentWeek];
+  const days = Object.keys(week);
+  let prev = week[days[days.length-1]].staff;
+  days.forEach(day => {
+    if (lockedDays[day]) return;
+    const temp = week[day].staff;
+    week[day].staff = prev;
+    prev = temp;
+  });
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+}
+
+function build24HourDropdown(id) {
+  const select = document.getElementById(id);
+  select.innerHTML = "";
+  for (let h=0; h<24; h++) {
+    for (let m of ["00","30"]) {
+      const time = `${String(h).padStart(2,"0")}:${m}`;
+      const opt = document.createElement("option");
+      opt.value = time;
+      opt.textContent = time;
+      select.appendChild(opt);
+    }
+  }
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-header button').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(tabDiv => tabDiv.classList.remove('active'));
+  document.getElementById(`tab-${tab}`).classList.add('active');
+  document.getElementById(`tab-content-${tab}`).classList.add('active');
+}
+
+function openEditModal(day) {
+  const modal = document.getElementById("edit-modal");
+  modal.style.display = "flex";
+
+  switchTab('hours');
+
+  document.getElementById("modal-day").innerHTML = `<option>${day}</option>`;
+  const entry = rota[currentWeek][day];
+
+  const [start, end] = entry.hours.includes("–") ? entry.hours.split("–") : ["10:00","18:30"];
+  document.getElementById("modal-start").value = start;
+  document.getElementById("modal-end").value = end;
+
+  const staffSel = document.getElementById("modal-staff");
+  staffSel.innerHTML = "";
+  Object.keys(staffProfiles).forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    const working = entry.staff.find(s => s.name === name);
+    opt.textContent = name + (working ? " (Working Today)" : "") + (lockedStaff[name] ? " 🔒" : "");
+    if (working) opt.selected = true;
+    staffSel.appendChild(opt);
+  });
+
+  renderIndividualHours(day);
+  populateAvailabilitySelect(day);
+}
+
+function renderIndividualHours(day) {
+  const entry = rota[currentWeek][day];
+  const container = document.getElementById("individual-hours");
+  container.innerHTML = "";
+  entry.staff.forEach(s => {
+    container.innerHTML += `
+      <div>
+        <strong>${s.name}</strong><br>
+        <label>Start:</label>
+        <select id="staff-start-${s.name}"></select>
+        <label>End:</label>
+        <select id="staff-end-${s.name}"></select>
+      </div><br>
+    `;
+    build24HourDropdown(`staff-start-${s.name}`);
+    build24HourDropdown(`staff-end-${s.name}`);
+    const [st, en] = s.hours.split("–");
+    document.getElementById(`staff-start-${s.name}`).value = st;
+    document.getElementById(`staff-end-${s.name}`).value = en;
+  });
+}
+
+function saveIndividualHours() {
+  const day = document.getElementById("modal-day").value;
+  const entry = rota[currentWeek][day];
+  entry.staff.forEach(s => {
+    const st = document.getElementById(`staff-start-${s.name}`).value;
+    const en = document.getElementById(`staff-end-${s.name}`).value;
+    s.hours = `${st}–${en}`;
+    if (!preferredHours[s.name]) {
+      preferredHours[s.name] = {
+        count: 0,
+        totalStart: 0,
+        totalEnd: 0,
+        avgStart: st,
+        avgEnd: en
+      };
+    }
+    const ph = preferredHours[s.name];
+    ph.count++;
+    const stNum = parseFloat(st.replace(":", "."));
+    const enNum = parseFloat(en.replace(":", "."));
+    ph.totalStart += stNum;
+    ph.totalEnd += enNum;
+    ph.avgStart = (ph.totalStart / ph.count).toFixed(2).replace(".", ":");
+    ph.avgEnd = (ph.totalEnd / ph.count).toFixed(2).replace(".", ":");
+  });
+  alert("Individual hours saved and preferences updated");
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+}
+
+function applyModalEdit() {
+  const day = document.getElementById("modal-day").value;
+  if (lockedDays[day]) { alert("Day is locked"); return; }
+  const start = document.getElementById("modal-start").value;
+  const end = document.getElementById("modal-end").value;
+  rota[currentWeek][day].hours = `${start}–${end}`;
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+}
+
+function addStaffToDay() {
+  const day = document.getElementById("modal-day").value;
+  if (lockedDays[day]) { alert("Day is locked"); return; }
+  const selected = Array.from(document.getElementById("modal-staff").selectedOptions).map(o => o.value);
+  const entry = rota[currentWeek][day];
+  selected.forEach(name => {
+    if (!lockedStaff[name] && !entry.staff.find(s => s.name === name)) {
+      entry.staff.push({ name, hours: entry.hours });
+    }
+  });
+  renderIndividualHours(day);
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+  populateAvailabilitySelect(day);
+}
+
+function removeSelectedStaff() {
+  const day = document.getElementById("modal-day").value;
+  if (lockedDays[day]) { alert("Day is locked"); return; }
+  const selected = Array.from(document.getElementById("modal-staff").selectedOptions).map(o => o.value);
+  const entry = rota[currentWeek][day];
+  entry.staff = entry.staff.filter(s => !selected.includes(s.name) || lockedStaff[s.name]);
+  renderIndividualHours(day);
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+  populateAvailabilitySelect(day);
+}
+
+function closeModal() { document.getElementById("edit-modal").style.display = "none"; }
+
+function copyDay() {
+  const day = prompt("Enter day to copy FROM (e.g. Monday)");
+  const toDay = prompt("Enter day to copy TO (e.g. Tuesday)");
+  if (!rota[currentWeek][day] || !rota[currentWeek][toDay]) { alert("Invalid day name"); return; }
+  if (lockedDays[toDay]) { alert("Target day is locked"); return; }
+  rota[currentWeek][toDay] = JSON.parse(JSON.stringify(rota[currentWeek][day]));
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+}
+
+function copyWeek() {
+  const from = prompt("Copy FROM week number (1–4)");
+  const to = prompt("Copy TO week number (1–4)");
+  if (!rota[`week${from}`] || !rota[`week${to}`]) { alert("Invalid week number"); return; }
+  rota[`week${to}`] = JSON.parse(JSON.stringify(rota[`week${from}`]));
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+}
+
+function calculateHours() {
+  const week = rota[currentWeek];
+  let totals = {};
+  for (const day in week) {
+    const entry = week[day];
+    entry.staff.forEach(s => {
+      const [st, en] = s.hours.split("–");
+      const stH = parseFloat(st.replace(":", "."));
+      const enH = parseFloat(en.replace(":", "."));
+      const hours = enH - stH;
+      totals[s.name] = (totals[s.name] || 0) + hours;
+    });
+  }
+  let msg = "Weekly Hours:\n\n";
+  for (const name in totals) {
+    msg += `${name}: ${totals[name].toFixed(1)} hours`;
+    if (totals[name] > 40) msg += " ⚠️ Overtime";
+    msg += "\n";
+  }
+  alert(msg);
+  renderSummary(totals);
+}
+
+function renderSummary(existingTotals) {
+  const week = rota[currentWeek];
+  let totals = existingTotals || {};
+  if (!existingTotals) {
+    totals = {};
+    for (const day in week) {
+      const entry = week[day];
+      entry.staff.forEach(s => {
+        const [st, en] = s.hours.split("–");
+        const stH = parseFloat(st.replace(":", "."));
+        const enH = parseFloat(en.replace(":", "."));
+        const hours = enH - stH;
+        totals[s.name] = (totals[s.name] || 0) + hours;
+      });
+    }
+  }
+  let html = "<ul>";
+  for (const name in totals) {
+    html += `<li>${name}: ${totals[name].toFixed(1)} hours${totals[name]>40?" ⚠️":""}${lockedStaff[name]?" 🔒":""}</li>`;
+  }
+  html += "</ul>";
+  document.getElementById("summary-view").innerHTML = html;
+}
+
+function exportCSV() {
+  const week = rota[currentWeek];
+  let rows = [["Day","Hours","Staff"]];
+  for (const day in week) {
+    const entry = week[day];
+    rows.push([day, entry.hours, entry.staff.map(s => `${s.name} (${s.hours})`).join(", ")]);
+  }
+  const csv = rows.map(r => r.map(v => `"${v}"`).join(",")).join("\n");
+  const blob = new Blob([csv], {type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `rota_${currentWeek}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function openAvailabilityModal() {
+  const name = document.getElementById("staff-select").value;
+  if (!name) return;
+  document.getElementById("availability-name").textContent = name;
+  document.getElementById("availability-json-main").value = JSON.stringify(staffProfiles[name].availability || {}, null, 2);
+  document.getElementById("availability-modal").style.display = "flex";
+}
+
+function saveAvailabilityMain() {
+  const name = document.getElementById("availability-name").textContent;
+  try {
+    const obj = JSON.parse(document.getElementById("availability-json-main").value);
+    staffProfiles[name].availability = obj;
+    closeAvailabilityModal();
+    alert("Availability updated");
+    renderRota();
+    renderStaffTimeline();
+    renderSummary();
+    renderCalendar();
+    renderPrintWeeks();
+  } catch (e) {
+    alert("Invalid JSON");
+  }
+}
+
+function closeAvailabilityModal() { document.getElementById("availability-modal").style.display = "none"; }
+
+function applyShiftTemplate(type) {
+  const templates = {
+    morning: "10:00–14:00",
+    afternoon: "14:00–18:30",
+    full: "10:00–18:30"
+  };
+  const day = prompt("Which day? (e.g. Monday)");
+  if (!rota[currentWeek][day]) return alert("Invalid day");
+  if (lockedDays[day]) return alert("Day is locked");
+  rota[currentWeek][day].hours = templates[type];
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+}
+
+function suggestShifts() {
+  const week = rota[currentWeek];
+  let totals = {};
+  for (const day in week) {
+    const entry = week[day];
+    entry.staff.forEach(s => {
+      const [st, en] = s.hours.split("–");
+      const stH = parseFloat(st.replace(":", "."));
+      const enH = parseFloat(en.replace(":", "."));
+      const hours = enH - stH;
+      totals[s.name] = (totals[s.name] || 0) + hours;
+    });
+  }
+
+  for (const day in week) {
+    if (lockedDays[day]) continue;
+    const entry = week[day];
+    if (!entry.hours.includes("–")) continue;
+    const [hStart, hEnd] = entry.hours.split("–");
+    const hS = parseFloat(hStart.replace(":", "."));
+    const hE = parseFloat(hEnd.replace(":", "."));
+    const shiftHours = hE - hS;
+
+    let candidates = [];
+    for (const name in staffProfiles) {
+      if (lockedStaff[name]) continue;
+      const avail = staffProfiles[name].availability[day];
+      if (!avail) continue;
+      const [aStart, aEnd] = avail.split("–");
+      const aS = parseFloat(aStart.replace(":", "."));
+      const aE = parseFloat(aEnd.replace(":", "."));
+      if (hS >= aS && hE <= aE) {
+        let preferenceScore = 0;
+        if (preferredHours[name]) {
+          const ph = preferredHours[name];
+          const pS = parseFloat(ph.avgStart.replace(":", "."));
+          const pE = parseFloat(ph.avgEnd.replace(":", "."));
+          const startDiff = Math.abs(pS - hS);
+          const endDiff = Math.abs(pE - hE);
+          preferenceScore = startDiff + endDiff;
+        }
+        candidates.push({ name, currentHours: totals[name] || 0, preferenceScore });
+      }
+    }
+
+    candidates.sort((a, b) => {
+      if (a.preferenceScore !== b.preferenceScore) return a.preferenceScore - b.preferenceScore;
+      return a.currentHours - b.currentHours;
+    });
+
+    const chosen = candidates.slice(0, 2).map(c => c.name);
+    entry.staff = chosen.map(name => ({ name, hours: entry.hours }));
+    chosen.forEach(name => {
+      totals[name] = (totals[name] || 0) + shiftHours;
+    });
+  }
+
+  renderRota();
+  renderStaffTimeline();
+  renderSummary();
+  renderCalendar();
+  renderPrintWeeks();
+  alert("AI suggestions applied using preferred hours and availability (locks respected)");
+}
+
+function lockDay() {
+  const day = prompt("Lock which day? (e.g. Monday)");
+  if (!rota[currentWeek][day]) return alert("Invalid day");
+  lockedDays[day] = true;
+  alert(day + " is now locked");
+  renderRota();
+  renderCalendar();
+}
+
+function unlockDay() {
+  const day = prompt("Unlock which day?");
+  delete lockedDays[day];
+  alert(day + " unlocked");
+  renderRota();
+  renderCalendar();
+}
+
+function lockStaff() {
+  const name = prompt("Lock which staff member?");
+  if (!staffProfiles[name]) return alert("Invalid staff name");
+  lockedStaff[name] = true;
+  alert(name + " is now locked");
+  populateStaffDropdown();
+  renderStaffPool();
+  renderRota();
+}
+
+function unlockStaff() {
+  const name = prompt("Unlock which staff member?");
+  delete lockedStaff[name];
+  alert(name + " unlocked");
+  populateStaffDropdown();
+  renderStaffPool();
+  renderRota();
+}
+
+function renderCalendar() {
+  const container = document.getElementById("calendar");
+  container.innerHTML = "";
+  const days = Object.keys(rota[currentWeek]);
+  let html = `<div class="calendar-grid">`;
+  days.forEach(day => {
+    html += `
+      <div class="calendar-day" onclick="openEditModal('${day}')">
+        <strong>${day}${lockedDays[day] ? " 🔒" : ""}</strong><br>
+        ${rota[currentWeek][day].hours}<br>
+        Staff: ${rota[currentWeek][day].staff.length}
+      </div>
+    `;
+  });
+  html += "</div>";
+  container.innerHTML = html;
+}
+
+function renderPrintWeeks() {
+  const container = document.getElementById("print-weeks-container");
+  container.innerHTML = "";
+  for (let w = 1; w <= 4; w++) {
+    const weekKey = `week${w}`;
+    const week = rota[weekKey];
+    let html = `<h4>Week ${w}</h4>`;
+    html += `<table><thead><tr><th>Day</th><th>Hours</th><th>Staff</th></tr></thead><tbody>`;
+    for (const day in week) {
+      const entry = week[day];
+      html += `
+        <tr>
+          <td>${day}</td>
+          <td>${entry.hours}</td>
+          <td>${entry.staff.map(s => `${s.name} (${s.hours})`).join(", ") || "—"}</td>
+        </tr>
+      `;
+    }
+    html += `</tbody></table><br>`;
+    container.innerHTML += html;
+  }
+}
+
+function populateAvailabilitySelect(day) {
+  const select = document.getElementById("availability-select");
+  select.innerHTML = "";
+  const entry = rota[currentWeek][day];
+  Object.keys(staffProfiles).forEach(name => {
+    const opt = document.createElement("option");
+    const working = entry.staff.find(s => s.name === name);
+    opt.value = name;
+    opt.textContent = name + (working ? " (Working Today)" : "");
+    select.appendChild(opt);
+  });
+  const first = select.value;
+  document.getElementById("availability-json").value =
+    JSON.stringify(staffProfiles[first].availability || {}, null, 2);
+  select.onchange = () => {
+    const n = select.value;
+    document.getElementById("availability-json").value =
+      JSON.stringify(staffProfiles[n].availability || {}, null, 2);
+  };
+}
+
+function saveAvailability() {
+  const name = document.getElementById("availability-select").value;
+  try {
+    const obj = JSON.parse(document.getElementById("availability-json").value);
+    staffProfiles[name].availability = obj;
+    alert("Availability updated");
+    renderRota();
+    renderStaffTimeline();
+    renderSummary();
+    renderCalendar();
+    renderPrintWeeks();
+  } catch (e) {
+    alert("Invalid JSON");
+  }
+}
+
+function exportConfig() {
+  const config = {
+    rota,
+    staffProfiles,
+    staffColors,
+    lockedDays,
+    lockedStaff,
+    preferredHours
+  };
+
+  const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "rota-config.json";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  URL.revokeObjectURL(url);
+  alert("Config exported successfully");
+}
+
+function importConfig() {
+  document.getElementById("config-file").click();
+}
+
+function handleConfigFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+
+      rota = data.rota;
+      staffProfiles = data.staffProfiles;
+      staffColors = data.staffColors;
+      lockedDays = data.lockedDays;
+      lockedStaff = data.lockedStaff;
+      preferredHours = data.preferredHours;
+
+      alert("Config loaded successfully");
+
+      populateStaffDropdown();
+      renderStaffPool();
+      renderRota();
+      renderStaffTimeline();
+      renderSummary();
+      renderCalendar();
+      renderPrintWeeks();
+
+    } catch (err) {
+      alert("Invalid config file");
+    }
+  };
+
+  reader.readAsText(file);
+}
+
+build24HourDropdown("modal-start");
+build24HourDropdown("modal-end");
+populateStaffDropdown();
+renderStaffPool();
+renderRota();
+renderStaffTimeline();
+renderSummary();
+renderCalendar();
+renderPrintWeeks();
+</script>
+</body>
+</html>
